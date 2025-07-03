@@ -1,0 +1,100 @@
+---
+title: "Estimating true producer advantage in a hunter population"
+author: "Marcos Paiva"
+date: "2025-05-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results = "hold", fig.height = 6.5)
+# Load required packages and set theme
+if (!require("pacman")) install.packages("pacman")
+pacman::p_load(lhs, tidyr, dplyr, ggplot2, moments, rstatix, boot, ggpubr, forcats, overlapping)
+theme_set(theme_bw())
+# Load data (set appropriate path)
+load("/Users/admin/Desktop/Textos/2024/Vantagem do produtor/data.Rdata")
+load("/Users/admin/Desktop/Textos/2024/Vantagem do produtor/data_full.Rdata")
+load("/Users/admin/Desktop/Textos/2024/Vantagem do produtor/stats.Rdata")
+# Set up random seed for reproducibility
+set.seed(-1556080447)
+# Function for converting PAI indexes into measures of percent calories
+# the focal household consumes more or less than average other households
+conv <- function(x) {
+  if (x >= 0) {y <- x}
+  else {y <- x / (1-x)}
+  return(round(y, 2)*100)
+}
+# Function for reporting p-value
+format_pval <- function(x){
+    if (x < .0001) return(paste('<', '.0001'))
+    if (x > .0001 & x < .001) return(paste('<', '.001'))
+    if (x > .250) return(paste('>', '.250'))
+    paste('=', myround(x, 3))   # 3 = no. of digits if .001 < p < .250
+}
+```
+&nbsp;
+
+##### Are better Hadza hunters able to advantage their own households in food distributions? 
+
+To address that question, I generated a random sample of all income allocations that could possibly arise from the acquisition and sharing rates of married Hadza hunters documented by Wood and Marlowe (2013). The producer advantage of best hunters relative to the average of all other hunters was then calculated by comparing the incomes from this representative sample of feasible income allocations.
+&nbsp;
+
+&nbsp;
+
+```{r plot figure, fig.cap="**Figure. Producer advantage of best Hadza hunters.** The figure shows producer advantage index (PAI) values calculated for the households of best hunters relative to other households on average based on (a) feasible income allocations sampled from the producer income space (density plots) and (b) post-sharing acquisition rates only (dashed lines). Results are shown for the married hunter population (upper graph) and the full population of male and female producers (lower graph). The grey area corresponds to the equality zone where incomes differ by up to 20% in either direction."}
+
+# Data frame with producer advantages estimates 
+# for hunter population and full population
+pad_df <- as.data.frame(cbind('Married hunters' = pad, 'Full population' = pad_full))
+pad_df <- pad_df %>%  # long format
+  gather(key = "Type", value = "Value", 'Married hunters', 'Full population') %>%
+  mutate(Set = 'Full income') %>%
+  rbind(c('Married hunters', psa, 'Acquired portion'),
+        c('Full population', psa_full, 'Acquired portion')) %>%
+  mutate_at(c('Type', 'Set'), as.factor) %>%
+  mutate_at('Value', as.numeric) %>%
+  mutate(Type = fct_rev(Type))
+
+# Generate density plots for the producer advantage of top vs. average other hunters
+fig <-
+  ggplot(pad_df) +
+  annotate("rect", xmin = -0.2  , xmax = 0.2, ymin = 0, ymax = Inf, 
+           fill = "grey") +
+  facet_wrap(~Type, ncol = 1) +
+  geom_density(data = subset(pad_df, Set == 'Full income'),
+               aes(x=Value, colour=Type, fill=Type, linetype=Set),
+               key_glyph = draw_key_path, alpha=0.7) +
+  geom_vline(data = subset(pad_df, Set == 'Acquired portion'),
+             aes(xintercept = Value, colour=Type, linetype=Set),
+             key_glyph = draw_key_path) +
+  labs(x="Producer Advantage Index", y="Density", linetype="Derived from:") +
+  guides(color = 'none', fill = 'none') +
+  theme(legend.position="top") +
+  scale_y_continuous(expand = c(0,0)) + 
+  scale_fill_manual(values = c("#01256e", "#95001a")) + 
+  scale_colour_manual(values = c("#01256e", "#95001a")) +
+  scale_linetype_manual(values = c('solid', 'dashed'),
+                    labels=c('Full income', 'Acquired portion'))
+
+plot(fig)
+
+```
+&nbsp;
+
+&nbsp;
+
+##### Results for the hunter population
+
+1. When comparing the household incomes of **best hunters with other hunters on average**, the median PAI is `r round(median(pad),2)` (95% CI [`r round(ci_med[1],2)`, `r round(ci_med[2],2)`]), ranging from  `r round(min(pad),2)` to `r round(max(pad),2)`. Based on the 20% income difference threshold, producer advantage, equality, and producer disadvantage arise in `r round(length(pad[pad > 0.2])/length(pad),2)*100`%, `r round(length(pad[pad < 0.2 & pad > -0.2])/length(pad),2)*100`%, and `r round(length(pad[pad < -0.2])/length(pad),2)*100`% of sampled feasible income allocations, respectively.
+    
+2. Using the 5th to 95th percentiles of the PAI distribution as the range within which true producer advantage most likely falls, it follows that the income difference between the households of **best hunters vs. other hunters on average** would be anywhere between `r conv(quantile(pad, 0.05[[1]]))`% (95% CI [`r conv(ci_p05[1])`%, `r conv(ci_p05[2])`%]) and `r conv(quantile(pad, 0.95[[1]]))`% (95% CI [`r conv(ci_p95[1])`%, `r conv(ci_p95[2])`%]). Therefore, best hunters would most likely have limited opportunity to advantage their own households even though they provided around `r round(psa,1)+1` times more calories to their own households than other hunters on average.
+
+##### Results for the full population
+
+3. When comparing the household incomes of **best hunters and their wives with other male and female producers on average**, the median PAI is `r round(median(pad_full),2)` (95% CI [`r round(ci_med_full[1],2)`, `r round(ci_med_full[2],2)`]), ranging from  `r round(min(pad_full),2)` to `r round(max(pad_full),2)`. Based on the 20% income difference threshold, producer advantage, equality, and producer disadvantage arise in `r round(length(pad_full[pad_full > 0.2])/length(pad_full),2)*100`%, `r round(length(pad_full[pad_full < 0.2 & pad_full > -0.2])/length(pad_full),2)*100`%, and `r round(length(pad_full[pad_full < -0.2])/length(pad_full),2)*100`% of sampled feasible income allocations, respectively.
+
+4. Using the 5th to 95th percentiles of the PAI distribution as the range within which true producer advantage most likely falls, it follows that the income difference between the households of **best hunters and their wives vs. other male and female producers on average** would be anywhere between `r conv(quantile(pad_full, 0.05[[1]]))`% (95% CI [`r conv(ci_p05_full[1])`%, `r conv(ci_p05_full[2])`%]) and `r conv(quantile(pad_full, 0.95[[1]]))`% (95% CI [`r conv(ci_p95_full[1])`%, `r conv(ci_p95_full[2])`%]). Therefore, best hunters and their wives would most likely have limited opportunity to advantage their own households even though they provided around `r round(psa_full,1)+1` times more calories to their own households than other male and female producers on average.
+
+##### Results for both populations
+
+5. The mean PAI was `r round(mean(pad_full),2)` (SD =  `r round(sd(pad_full),2)`) for the full population and `r round(mean(pad),2)` (SD =  `r round(sd(pad),2)`) for the married hunter population. A Welch two-samples t-test showed that the difference was statistically significant, t(`r floor(t$parameter[[1]])`) = `r round(t$statistic[[1]])`, p `r format_pval(t$p.value)`. However, the mean PAI difference between the full and married hunter populations was `r round(mean(pad_full)-mean(pad),2)` (95% CI [`r round(t$conf.int[[1]],2)`, `r round(t$conf.int[[2]],2)`]) and the shared area of the density curves estimated by the overlapping index is `r round(over,2)` (95% CI [`r round(ci_over[[1]],2)`, `r round(ci_over[[2]],2)`]). Thus, while there are statistically significant differences in producer advantage estimates derived for the married hunter and the full population, these differences are of little practical significance and the estimates are overall very similar to each other in both scenarios.  
